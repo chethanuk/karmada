@@ -254,10 +254,12 @@ schedulerEstimator:
 ```
 
 > **Note**: `clusterName` must be set to the name the member cluster was registered with in Karmada
-> (the name given to `karmadactl join <name>`). Left as `""`, the estimator objects get invalid names such as
+> (the name given to `karmadactl join <name>`, or `agent.clusterName` for a member registered by the `agent` mode
+> installation above). Left as `""`, the estimator objects get invalid names such as
 > `karmada-scheduler-estimator-`. Fill in `kubeconfig` for that member too, otherwise the
-> `karmada-scheduler-estimator` pod cannot start. Because the member has to be joined first, the estimator is
-> usually installed with `installMode: "component"` after the `host` mode installation.
+> `karmada-scheduler-estimator` pod cannot start. Because the member has to be registered first, the estimator is
+> usually installed with `installMode: "component"` after the `host` mode installation. The `host` mode release
+> must also set `scheduler.enableSchedulerEstimator: true`, otherwise the scheduler does not call the estimator.
 
 > **Note**: The `karmada-scheduler-estimator` mounts the `karmada-cert` Secret created by the `host` mode
 > installation (default name `karmada-cert`, from the `karmada` release). If your `host` mode release uses a
