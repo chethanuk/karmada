@@ -17,6 +17,7 @@ limitations under the License.
 package etcd
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strconv"
@@ -25,6 +26,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	coretesting "k8s.io/client-go/testing"
@@ -95,6 +98,58 @@ func TestEnsureKarmadaEtcd(t *testing.T) {
 
 	if pdbCount != 1 {
 		t.Errorf("expected 1 PDB action, but got %d", pdbCount)
+	}
+}
+
+func TestEnsureKarmadaEtcd_PeerServicePublishesNotReadyAddresses(t *testing.T) {
+	name, namespace := "karmada-demo", "test"
+	tests := []struct {
+		name     string
+		existing []runtime.Object
+	}{
+		{
+			name: "fresh install",
+		},
+		{
+			name: "existing peer service without the field is updated",
+			existing: []runtime.Object{&corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: util.KarmadaEtcdName(name), Namespace: namespace},
+				Spec:       corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone},
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := fakeclientset.NewClientset(tt.existing...)
+			cfg := &operatorv1alpha1.LocalEtcd{
+				CommonSettings: operatorv1alpha1.CommonSettings{
+					Image:    operatorv1alpha1.Image{ImageRepository: "registry.k8s.io/etcd", ImageTag: "latest"},
+					Replicas: new(int32(3)),
+				},
+			}
+			if err := EnsureKarmadaEtcd(client, cfg, name, namespace); err != nil {
+				t.Fatalf("expected no error, but got: %v", err)
+			}
+
+			peer, err := client.CoreV1().Services(namespace).Get(context.TODO(), util.KarmadaEtcdName(name), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("failed to get etcd peer service: %v", err)
+			}
+			if peer.Spec.ClusterIP != corev1.ClusterIPNone {
+				t.Errorf("expected peer service clusterIP %q, but got %q", corev1.ClusterIPNone, peer.Spec.ClusterIP)
+			}
+			if !peer.Spec.PublishNotReadyAddresses {
+				t.Errorf("expected peer service to publish not-ready addresses so etcd members resolve each other before quorum")
+			}
+
+			clientSvc, err := client.CoreV1().Services(namespace).Get(context.TODO(), util.KarmadaEtcdClientName(name), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("failed to get etcd client service: %v", err)
+			}
+			if clientSvc.Spec.PublishNotReadyAddresses {
+				t.Errorf("expected client service not to publish not-ready addresses")
+			}
+		})
 	}
 }
 
